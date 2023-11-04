@@ -55,7 +55,7 @@ jobs:
           python-version: '3.10'
 
       - name: Build and install deltalake
-        if: ${{ IS_RELEASE != 'true' }}
+        if: ${{ env.IS_RELEASE != 'true' }}
         run: |
           cd python
           make ${{ env.BUILD_ARGS }}
@@ -85,6 +85,6 @@ jobs:
             python/
             .nojekyll
           single-commit: false
-          tag: "doc update for tag ${{ GITHUB_REF##*/ }}"
+          tag: "doc update for tag ${{ github.ref_name }}"
 
 
