@@ -17,3 +17,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           event-type: python-release
+          client-payload: >
+            {
+              "tag": "${{ github.ref_name }}"
+            }

@@ -36,6 +36,11 @@ jobs:
           src: docs/src/python
 
   build:
+    needs:
+      [
+        lint,
+        markdown-link-check,
+      ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -76,6 +81,6 @@ jobs:
             python/
             .nojekyll
           single-commit: false
-          tag: "doc update for tag ${{ github.ref_name }}"
+          tag: "${{ github.event.client_payload.tag || github.ref_name }}"
 
 
