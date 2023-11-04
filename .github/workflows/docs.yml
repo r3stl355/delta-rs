@@ -81,6 +81,8 @@ jobs:
             python/
             .nojekyll
           single-commit: false
-          tag: "${{ github.event.client_payload.tag || github.ref_name }}"
+          git-config-name: "Github Action"
+          git-config-email: "deltars@users.noreply.github.com"
+          commit-message: "doc update for tag `${{ github.event.client_payload.tag || github.ref_name }}`"
 
 
