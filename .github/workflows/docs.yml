@@ -55,7 +55,6 @@ jobs:
           python-version: '3.10'
 
       - name: Build and install deltalake
-        if: ${{ env.IS_RELEASE != 'true' }}
         run: |
           cd python
           make ${{ env.BUILD_ARGS }}
@@ -68,12 +67,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          source python/venv/bin/activate
           pip install -r docs/requirements.txt
 
       - name: Build documentation
         run: |
-          source python/venv/bin/activate
           mkdocs build
 
       - name: Deploy documentation
