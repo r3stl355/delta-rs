@@ -1,0 +1,19 @@
+name: Release to PyPI
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: ./python
+
+jobs:
+  release-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Trigger the release event
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          event-type: python-release
