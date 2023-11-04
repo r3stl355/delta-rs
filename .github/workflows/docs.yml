@@ -59,21 +59,15 @@ jobs:
           cd python
           make ${{ env.BUILD_ARGS }}
 
-      #  - name: Build and install deltalake for release
-      #   if: ${{ IS_RELEASE == 'true' }}
-      #   run: |
-      #     cd python
-      #     make 
-
       - name: Install dependencies
         run: |
           pip install -r docs/requirements.txt
 
-      - name: Build documentation
+      - name: Build
         run: |
           mkdocs build
 
-      - name: Deploy documentation
+      - name: Deploy
         if: ${{ env.IS_RELEASE == 'true' }}
         uses: JamesIves/github-pages-deploy-action@v4
         with:
