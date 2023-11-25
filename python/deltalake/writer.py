@@ -1,3 +1,4 @@
+import os
 import json
 import sys
 import uuid
@@ -251,6 +252,7 @@ def write_deltalake(
     add_actions: List[AddAction] = []
 
     def visitor(written_file: Any) -> None:
+        # print(f"+{written_file.path} - <visitor>[{os.getpid()}]")
         path, partition_values = get_partitions_from_path(written_file.path)
         stats = get_file_stats_from_metadata(written_file.metadata)
 
@@ -272,6 +274,7 @@ def write_deltalake(
                 json.dumps(stats, cls=DeltaJSONEncoder),
             )
         )
+        # print(f"-{written_file.path} - <visitor>[{os.getpid()}]")
 
     if table is not None:
         # We don't currently provide a way to set invariants
@@ -349,6 +352,7 @@ def write_deltalake(
             use_compliant_nested_type=False
         )
 
+    print("[deltalake] Write dataset")
     ds.write_dataset(
         data,
         base_dir="/",
@@ -369,6 +373,7 @@ def write_deltalake(
     )
 
     if table is None:
+        print("[deltalake] Create table")
         _write_new_deltalake(
             table_uri,
             schema,
@@ -381,6 +386,7 @@ def write_deltalake(
             storage_options,
         )
     else:
+        print("[deltalake] Create transaction")
         table._table.create_write_transaction(
             add_actions,
             mode,

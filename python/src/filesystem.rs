@@ -13,6 +13,8 @@ use tokio::runtime::Runtime;
 use crate::error::PythonError;
 use crate::utils::{delete_dir, rt, walk_tree};
 
+const DEFAULT_MAX_BUFFER_SIZE: i64 = 4 * 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct FsConfig {
     pub(crate) root_url: String,
@@ -48,6 +50,7 @@ impl DeltaFileSystemHandler {
         options: Option<HashMap<String, String>>,
         known_sizes: Option<HashMap<String, i64>>,
     ) -> PyResult<Self> {
+        // println!("[{:?}] DeltaFileSystemHandler, options: {:?}, known_sizes: {:?}", std::thread::current().id(), options.clone().unwrap_or_default(), known_sizes.clone().unwrap_or_default());
         let storage = DeltaTableBuilder::from_uri(table_uri)
             .with_storage_options(options.clone().unwrap_or_default())
             .build_storage()
@@ -85,6 +88,7 @@ impl DeltaFileSystemHandler {
 
     fn create_dir(&self, _path: String, _recursive: bool) -> PyResult<()> {
         // TODO creating a dir should be a no-op with object_store, right?
+        // println!("... [{:?}] create_dir: {}", std::thread::current().id(), &_path);
         Ok(())
     }
 
@@ -254,6 +258,7 @@ impl DeltaFileSystemHandler {
     }
 
     fn open_input_file(&self, path: String) -> PyResult<ObjectInputFile> {
+        // println!("[delta-rs] open_input_file");
         let size = match &self.known_sizes {
             Some(sz) => sz.get(&path),
             None => None,
@@ -278,15 +283,24 @@ impl DeltaFileSystemHandler {
         path: String,
         #[allow(unused)] metadata: Option<HashMap<String, String>>,
     ) -> PyResult<ObjectOutputStream> {
+        // println!("+++ [{:?}] open_output_stream: {}", std::thread::current().id(), &path);
         let path = Self::parse_path(&path);
+        // let def_max_buf_size = "default".into();
+        // let max_buffer_size = self.config.options.get("max_buffer_size").map(f).unwrap_or(&def_max_buf_size);
+        let max_buffer_size = self.config.options.get("max_buffer_size").map_or(DEFAULT_MAX_BUFFER_SIZE, |v| v.parse::<i64>().unwrap_or(DEFAULT_MAX_BUFFER_SIZE));
+        // let max_buffer_size = max_buffer_size.parse::<i64>().unwrap_or(DEFAULT_MAX_BUFFER_SIZE);
+        
+        //  i fmax_buffer_size == "default".to_string()  i64::try_from(max_buffer_size).or_else(DEFAULT_MAX_BUFFER_SIZE);
         let file = self
             .rt
             .block_on(ObjectOutputStream::try_new(
                 Arc::clone(&self.rt),
                 self.inner.clone(),
                 path,
-            ))
+                max_buffer_size,
+            )) 
             .map_err(PythonError::from)?;
+        // println!("--- [{:?}] open_output_stream: {}", std::thread::current().id(), &path);
         Ok(file)
     }
 
@@ -492,6 +506,8 @@ pub struct ObjectOutputStream {
     closed: bool,
     #[pyo3(get)]
     mode: String,
+    max_buffer_size: i64,
+    buffer_size: i64
 }
 
 impl ObjectOutputStream {
@@ -499,6 +515,7 @@ impl ObjectOutputStream {
         rt: Arc<Runtime>,
         store: Arc<DynObjectStore>,
         path: Path,
+        max_buffer_size: i64,
     ) -> Result<Self, ObjectStoreError> {
         let (multipart_id, writer) = store.put_multipart(&path).await?;
         Ok(Self {
@@ -510,6 +527,8 @@ impl ObjectOutputStream {
             pos: 0,
             closed: false,
             mode: "wb".into(),
+            max_buffer_size: max_buffer_size,
+            buffer_size: 0,
         })
     }
 
@@ -525,16 +544,23 @@ impl ObjectOutputStream {
 #[pymethods]
 impl ObjectOutputStream {
     fn close(&mut self, py: Python<'_>) -> PyResult<()> {
+        // println!("+++ [{:?}] ObjectOutputStream.close: {}", std::thread::current().id(), &self.path);
+        // println!("+++ [{:?}] ObjectOutputStream.close: {}, max_buffer_size: {}", std::thread::current().id(), &self.path, self.max_buffer_size);
         self.closed = true;
-        py.allow_threads(|| match self.rt.block_on(self.writer.shutdown()) {
+        // let res = self.rt.block_on(self.writer.shutdown())?;
+        let res = py.allow_threads(|| match self.rt.block_on(self.writer.shutdown()) {
             Ok(_) => Ok(()),
             Err(err) => {
+                println!("+++ [{:?}] ObjectOutputStream.close: {}, error: {:?}", std::thread::current().id(), &self.path, err);
                 self.rt
                     .block_on(self.store.abort_multipart(&self.path, &self.multipart_id))
                     .map_err(PythonError::from)?;
+                println!("--- [{:?}] ObjectOutputStream.close: {}, error: {:?}", std::thread::current().id(), &self.path, err);
                 Err(PyIOError::new_err(err.to_string()))
             }
-        })
+        })?;
+        // println!("--- [{:?}] ObjectOutputStream.close: {}", std::thread::current().id(), &self.path);
+        Ok(res)
     }
 
     fn isatty(&self) -> PyResult<bool> {
@@ -578,22 +604,34 @@ impl ObjectOutputStream {
     }
 
     fn write(&mut self, data: &PyBytes) -> PyResult<i64> {
+        // println!("+++ [{:?}] ObjectOutputStream.write: {} - {}", std::thread::current().id(), &self.path, data.len().unwrap());
         self.check_closed()?;
         let len = data.as_bytes().len() as i64;
         let py = data.py();
         let data = data.as_bytes();
-        py.allow_threads(|| match self.rt.block_on(self.writer.write_all(data)) {
+        // Ok(len)
+        let res = py.allow_threads(|| match self.rt.block_on(self.writer.write_all(data)) {
             Ok(_) => Ok(len),
             Err(err) => {
+                println!("+++ [{:?}] ObjectOutputStream.write: {}, error: {:?}", std::thread::current().id(), &self.path, err);
                 self.rt
                     .block_on(self.store.abort_multipart(&self.path, &self.multipart_id))
                     .map_err(PythonError::from)?;
+                println!("--- [{:?}] ObjectOutputStream.write: {}, error: {:?}", std::thread::current().id(), &self.path, err);
                 Err(PyIOError::new_err(err.to_string()))
             }
-        })
+        });
+        self.buffer_size += len;
+        if self.buffer_size >= self.max_buffer_size {
+            let _ = self.flush(py);
+            self.buffer_size = 0;
+        }
+        // println!("--- [{:?}] ObjectOutputStream.write: {}", std::thread::current().id(), &self.path);
+        res
     }
 
     fn flush(&mut self, py: Python<'_>) -> PyResult<()> {
+        // println!("[delta-rs] ObjectOutputStream.flush");
         py.allow_threads(|| match self.rt.block_on(self.writer.flush()) {
             Ok(_) => Ok(()),
             Err(err) => {
